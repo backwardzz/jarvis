@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Заметки</title>
+  <link rel="stylesheet" href="/sandbox/kit/jarvis-kit.css">
+  <link rel="stylesheet" href="notes.css">
+</head>
+<body>
+  <main class="wrap stack">
+    <form id="add" class="stack">
+      <textarea id="text" rows="3" placeholder="Новая заметка… (Ctrl+Enter — сохранить)"></textarea>
+      <div class="row">
+        <button class="btn primary" type="submit">Сохранить</button>
+        <span class="dim mono" id="count"></span>
+      </div>
+    </form>
+    <ul id="list"></ul>
+  </main>
+  <script src="notes.js"></script>
+</body>
+</html>

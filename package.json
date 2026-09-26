@@ -1,0 +1,58 @@
+{
+  "name": "jarvis",
+  "productName": "JARVIS",
+  "version": "1.0.0",
+  "description": "J.A.R.V.I.S. — голосовой HUD-ассистент поверх Claude Code",
+  "main": "main.js",
+  "author": "Danny",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --dir"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.3.0",
+    "msedge-tts": "^2.0.8",
+    "sherpa-onnx-node": "^1.13.8"
+  },
+  "devDependencies": {
+    "@fontsource-variable/exo-2": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@fontsource-variable/orbitron": "^5.3.0",
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "local.danny.jarvis",
+    "productName": "JARVIS",
+    "executableName": "JARVIS",
+    "icon": "assets/icon.ico",
+    "asar": false,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**",
+      "renderer/**",
+      "assets/**",
+      "widget-preload.js",
+      "sandbox/**",
+      "!sandbox/.status.json",
+      "package.json",
+      "!node_modules/onnxruntime-web/**",
+      "!node_modules/onnxruntime-node/bin/napi-v*/darwin/**",
+      "!node_modules/onnxruntime-node/bin/napi-v*/linux/**",
+      "!node_modules/onnxruntime-node/bin/napi-v*/win32/arm64/**",
+      "!node_modules/@huggingface/transformers/src/**",
+      "!node_modules/@huggingface/transformers/types/**",
+      "!**/*.map"
+    ],
+    "win": {
+      "target": "dir",
+      "signAndEditExecutable": true
+    }
+  }
+}

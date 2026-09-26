@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Таймер</title>
+  <link rel="stylesheet" href="/sandbox/kit/jarvis-kit.css">
+  <style>
+    .quick { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+    .custom { display: grid; grid-template-columns: 1fr 1.4fr auto; gap: 6px; }
+    #timers { display: grid; gap: 10px; }
+    .timer { display: grid; grid-template-columns: 64px 1fr auto; gap: 12px; align-items: center; }
+    .timer svg { width: 64px; height: 64px; transform: rotate(-90deg); }
+    .timer .track { fill: none; stroke: rgba(67, 229, 255, .12); stroke-width: 5; }
+    .timer .fill { fill: none; stroke: var(--cy); stroke-width: 5; stroke-dasharray: 169.6; filter: drop-shadow(0 0 4px var(--cy)); transition: stroke-dashoffset .9s linear; }
+    .timer .left { font: 600 20px var(--f-hud); color: #effcff; text-shadow: var(--glow); letter-spacing: .06em; }
+    .timer.soon .fill { stroke: var(--amber); filter: drop-shadow(0 0 4px var(--amber)); }
+    .empty { color: var(--text-mute); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <main class="wrap stack">
+    <div class="quick">
+      <button class="btn" data-min="1">1 мин</button>
+      <button class="btn" data-min="5">5 мин</button>
+      <button class="btn" data-min="10">10 мин</button>
+      <button class="btn" data-min="25">25 мин</button>
+    </div>
+    <form class="custom" id="custom">
+      <input id="minutes" type="number" min="1" max="600" placeholder="мин">
+      <input id="label" placeholder="название">
+      <button class="btn primary" type="submit">Старт</button>
+    </form>
+    <section id="timers"><div class="empty">Нет активных таймеров.</div></section>
+  </main>
+  <script>
+    const box = document.getElementById('timers');
+    const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+    const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+    function render(list) {
+      if (!list.length) { box.innerHTML = '<div class="empty">Нет активных таймеров.</div>'; return; }
+      box.innerHTML = list.map((t) => `
+        <div class="timer panel ${t.left <= 10 ? 'soon' : ''}">
+          <svg viewBox="0 0 64 64"><circle class="track" cx="32" cy="32" r="27"/><circle class="fill" cx="32" cy="32" r="27" style="stroke-dashoffset:${169.6 * (1 - t.left / t.total)}"/></svg>
+          <div><div class="left">${fmt(t.left)}</div><h3>${esc(t.label)}</h3></div>
+          <button class="btn danger" data-cancel="${t.id}">×</button>
+        </div>`).join('');
+    }
+
+    const start = (minutes, label) => jarvis.call('timer', 'start', { seconds: Math.round(minutes * 60), label: label || undefined });
+    document.querySelector('.quick').addEventListener('click', (e) => { const b = e.target.closest('[data-min]'); if (b) start(Number(b.dataset.min)); });
+    document.getElementById('custom').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const m = Number(document.getElementById('minutes').value);
+      if (m > 0) start(m, document.getElementById('label').value.trim());
+    });
+    box.addEventListener('click', (e) => { const b = e.target.closest('[data-cancel]'); if (b) jarvis.call('timer', 'cancel', Number(b.dataset.cancel)); });
+
+    jarvis.on('timer.state', render);
+    jarvis.call('timer', 'list').then(render).catch((e) => { box.innerHTML = `<div class="empty bad">${esc(e.message)}</div>`; });
+  </script>
+</body>
+</html>

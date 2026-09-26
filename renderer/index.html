@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' app: data: blob: https:; media-src 'self' blob: data:; connect-src 'self' app: https:; font-src 'self'; frame-src https: http: app:;">
+  <title>J.A.R.V.I.S.</title>
+  <link rel="stylesheet" href="fonts/fonts.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-mic" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M8.5 21h7"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.6M12 18.6v2.6M21.2 12h-2.6M5.4 12H2.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8M18.5 18.5l-1.8-1.8M7.3 7.3 5.5 5.5"/><circle cx="12" cy="12" r="6.6"/></g></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-min" viewBox="0 0 24 24"><path d="M6 12h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-max" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-collapse" viewBox="0 0 24 24"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.6 2.4 3.8 5.2 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.2-3.8-8.5S9.4 5.9 12 3.5z"/></g></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2v7.8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M19 12a7 7 0 1 1-2.05-4.95M19 4.5V8h-3.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+    <symbol id="i-radar" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><path d="M12 12 18 6" stroke-linecap="round"/></g></symbol>
+    <symbol id="i-reset" viewBox="0 0 24 24"><path d="M5 12a7 7 0 1 0 2.05-4.95M5 4.5V8h3.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M4 12 20 4l-4.5 16-3.5-6.5z M12 13.5 20 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="15" r="4"/><path d="m11 12 8-8m-3 3 2.5 2.5M14 9l2 2"/></g></symbol>
+  </svg>
+
+  <div class="backdrop" aria-hidden="true">
+    <div class="grid"></div>
+    <div class="sweep"></div>
+    <div class="vignette"></div>
+  </div>
+  <div class="scanlines" aria-hidden="true"></div>
+
+  <header class="titlebar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
+        <circle cx="20" cy="20" r="17" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".5"/>
+        <circle cx="20" cy="20" r="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-dasharray="5 2.6"/>
+        <circle cx="20" cy="20" r="5.5" fill="currentColor" opacity=".9"/>
+      </svg>
+      <div class="brand-text">
+        <div class="brand-name">J.A.R.V.I.S.</div>
+        <div class="brand-sub">JUST A RATHER VERY INTELLIGENT SYSTEM</div>
+      </div>
+    </div>
+    <div class="chips">
+      <span class="chip" id="chip-core"><i></i>CORE</span>
+      <span class="chip" id="chip-voice"><i></i>VOICE</span>
+      <span class="chip" id="chip-ears"><i></i>AUDIO IN</span>
+      <span class="chip" id="chip-net"><i></i>UPLINK</span>
+    </div>
+    <div class="clock">
+      <div class="clock-time" id="clock-time">--:--:--</div>
+      <div class="clock-date" id="clock-date">—</div>
+    </div>
+    <div class="win-controls">
+      <button class="win-btn" id="win-min" title="Свернуть"><svg><use href="#i-min"/></svg></button>
+      <button class="win-btn" id="win-max" title="Развернуть"><svg><use href="#i-max"/></svg></button>
+      <button class="win-btn close" id="win-close" title="Закрыть"><svg><use href="#i-close"/></svg></button>
+    </div>
+  </header>
+
+  <main class="hud">
+    <aside class="col col-left">
+      <section class="panel" id="panel-sys">
+        <header class="panel-head"><span class="code">SYS·01</span><h2>SYSTEM DIAGNOSTICS</h2></header>
+        <div class="gauges">
+          <div class="gauge" id="g-cpu">
+            <svg viewBox="0 0 120 120"><circle class="g-track" cx="60" cy="60" r="50"/><circle class="g-ticks" cx="60" cy="60" r="56"/><circle class="g-fill" cx="60" cy="60" r="50"/></svg>
+            <div class="g-val"><b>0</b><small>%</small></div>
+            <div class="g-label">CPU</div>
+          </div>
+          <div class="gauge" id="g-ram">
+            <svg viewBox="0 0 120 120"><circle class="g-track" cx="60" cy="60" r="50"/><circle class="g-ticks" cx="60" cy="60" r="56"/><circle class="g-fill" cx="60" cy="60" r="50"/></svg>
+            <div class="g-val"><b>0</b><small>%</small></div>
+            <div class="g-label">MEMORY</div>
+          </div>
+        </div>
+        <canvas class="spark" id="cpu-spark" height="44"></canvas>
+        <div class="disks" id="disks"></div>
+        <dl class="kv" id="sys-kv">
+          <dt>HOST</dt><dd id="kv-host">—</dd>
+          <dt>CPU</dt><dd id="kv-cpu">—</dd>
+          <dt>UPTIME</dt><dd id="kv-uptime">—</dd>
+          <dt>POWER</dt><dd id="kv-power">—</dd>
+        </dl>
+      </section>
+
+      <section class="panel" id="panel-env">
+        <header class="panel-head"><span class="code">ENV·02</span><h2>ENVIRONMENT</h2></header>
+        <div class="weather">
+          <div class="w-temp" id="w-temp">--°</div>
+          <div class="w-meta">
+            <div class="w-city" id="w-city">—</div>
+            <div class="w-text" id="w-text">загрузка данных…</div>
+          </div>
+        </div>
+        <div class="w-grid">
+          <div><span>ОЩУЩАЕТСЯ</span><b id="w-feels">—</b></div>
+          <div><span>ВЛАЖНОСТЬ</span><b id="w-hum">—</b></div>
+          <div><span>ВЕТЕР</span><b id="w-wind">—</b></div>
+          <div><span>MIN / MAX</span><b id="w-range">—</b></div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-core">
+        <header class="panel-head"><span class="code">CORE·03</span><h2>AI CORE</h2></header>
+        <dl class="kv">
+          <dt>ENGINE</dt><dd>Claude Code</dd>
+          <dt>STATUS</dt><dd id="core-status">проверка…</dd>
+          <dt>MODEL</dt><dd id="core-model">—</dd>
+          <dt>SESSION</dt><dd id="core-session">новая</dd>
+          <dt>LAST OP</dt><dd id="core-last">—</dd>
+          <dt>EARS</dt><dd id="core-stt">—</dd>
+        </dl>
+        <div class="core-actions">
+          <button class="btn btn-warn hidden" id="btn-login"><svg><use href="#i-key"/></svg>Авторизовать Claude</button>
+          <button class="btn" id="btn-reset"><svg><use href="#i-reset"/></svg>Новый разговор</button>
+        </div>
+      </section>
+    </aside>
+
+    <section class="center">
+      <div class="reactor-wrap" id="reactor-wrap" title="Нажмите, чтобы говорить">
+        <canvas id="reactor"></canvas>
+        <div class="reactor-core-label">
+          <div class="rc-name">JARVIS</div>
+          <div class="rc-state" id="rc-state">STANDBY</div>
+        </div>
+      </div>
+
+      <div class="state-line" id="state-line"><i></i><span id="state-text">Инициализация систем…</span></div>
+
+      <div class="subtitles">
+        <div class="sub-user" id="sub-user"></div>
+        <div class="sub-jarvis" id="sub-jarvis"></div>
+      </div>
+
+      <div class="controls">
+        <button class="ctl" id="btn-wake" title="Постоянно слушать и реагировать на слово «Джарвис»">
+          <svg><use href="#i-radar"/></svg><span>Режим «Джарвис»</span>
+        </button>
+        <button class="mic" id="btn-mic" title="Говорить (Пробел)">
+          <svg><use href="#i-mic"/></svg>
+        </button>
+        <button class="ctl" id="btn-stop" title="Остановить (Esc)">
+          <svg><use href="#i-stop"/></svg><span>Стоп</span>
+        </button>
+      </div>
+
+      <div class="dock hidden" id="dock" title="Окна песочницы: клик — открыть, правый клик — закрыть">
+        <span class="dock-label">SANDBOX</span>
+        <div class="dock-items" id="dock-items"></div>
+      </div>
+
+      <form class="command" id="command-form" autocomplete="off">
+        <span class="prompt">&gt;_</span>
+        <input id="command-input" type="text" placeholder="Напишите команду или нажмите Пробел и говорите…" spellcheck="false">
+        <button type="submit" title="Отправить"><svg><use href="#i-send"/></svg></button>
+      </form>
+    </section>
+
+    <aside class="col col-right">
+      <section class="panel" id="panel-projects">
+        <header class="panel-head">
+          <span class="code">PRJ·04</span><h2>PROJECTS</h2>
+          <span class="count" id="proj-count">0</span>
+          <button class="icon-btn" id="btn-add-project" title="Добавить проект"><svg><use href="#i-plus"/></svg></button>
+        </header>
+        <div class="projects" id="projects"></div>
+      </section>
+
+      <section class="panel grow" id="panel-log">
+        <header class="panel-head"><span class="code">LOG·05</span><h2>COMMS LOG</h2></header>
+        <div class="log" id="log"></div>
+      </section>
+
+      <section class="panel" id="panel-activity">
+        <header class="panel-head"><span class="code">ACT·06</span><h2>ACTIVITY</h2></header>
+        <div class="activity" id="activity"></div>
+      </section>
+    </aside>
+  </main>
+
+  <footer class="statusbar">
+    <span><kbd>Пробел</kbd> говорить</span>
+    <span><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Пробел</kbd> из любого окна</span>
+    <span><kbd>Esc</kbd> стоп</span>
+    <span class="spacer"></span>
+    <span id="status-voice"></span>
+    <span id="status-stt">STT —</span>
+    <span id="status-version">v1.0</span>
+    <button class="link-btn" id="btn-settings"><svg><use href="#i-gear"/></svg>Настройки</button>
+  </footer>
+
+  <!-- Project viewer -->
+  <div class="overlay hidden" id="viewer">
+    <div class="viewer-frame panel">
+      <header class="panel-head">
+        <span class="code">VIEW</span><h2 id="viewer-title">PROJECT</h2>
+        <div class="seg" id="viewer-mode">
+          <button data-mode="live" class="on">LIVE</button>
+          <button data-mode="local">LOCAL</button>
+        </div>
+        <span class="viewer-url" id="viewer-url"></span>
+        <button class="icon-btn" id="viewer-folder" title="Открыть папку проекта"><svg><use href="#i-folder"/></svg></button>
+        <button class="icon-btn" id="viewer-external" title="Открыть в браузере"><svg><use href="#i-globe"/></svg></button>
+        <button class="icon-btn" id="viewer-close" title="Закрыть (Esc)"><svg><use href="#i-close"/></svg></button>
+      </header>
+      <div class="viewer-body" id="viewer-body"></div>
+    </div>
+  </div>
+
+  <!-- Add project -->
+  <div class="overlay hidden" id="add-project">
+    <form class="dialog panel" id="add-form" autocomplete="off">
+      <header class="panel-head"><span class="code">NEW</span><h2>НОВЫЙ ПРОЕКТ</h2></header>
+      <label>Название<input name="name" required maxlength="80" placeholder="Например, Arabica"></label>
+      <label>Адрес сайта<input name="url" maxlength="300" placeholder="https://…"></label>
+      <label>Описание<textarea name="description" rows="3" maxlength="400" placeholder="Коротко, что это за проект"></textarea></label>
+      <label>Локальная папка<input name="localPath" maxlength="300" placeholder="D:\my-project"></label>
+      <div class="dialog-actions">
+        <button type="button" class="btn" data-close>Отмена</button>
+        <button type="submit" class="btn btn-primary">Добавить</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Settings -->
+  <div class="overlay hidden" id="settings">
+    <form class="dialog dialog-wide panel" id="settings-form" autocomplete="off">
+      <header class="panel-head"><span class="code">CFG</span><h2>НАСТРОЙКИ</h2></header>
+      <div class="settings-grid">
+        <fieldset>
+          <legend>ГОЛОС</legend>
+          <label>Голос Джарвиса<select name="voice" id="set-voice"></select></label>
+          <p class="hint" id="voice-hint"></p>
+          <label>Тон <output id="out-pitch"></output><input type="range" name="pitch" min="-20" max="10" step="1"></label>
+          <label>Скорость <output id="out-rate"></output><input type="range" name="rate" min="-20" max="30" step="1"></label>
+          <label>Громкость <output id="out-volume"></output><input type="range" name="volume" min="0" max="1" step="0.05"></label>
+          <label class="check"><input type="checkbox" name="voiceFx"> Эффект «ИИ» (реверб и хорус, как у Джарвиса)</label>
+          <label class="check"><input type="checkbox" name="sounds"> Звуки интерфейса</label>
+          <label class="check"><input type="checkbox" name="greeting"> Приветствие при запуске</label>
+          <button type="button" class="btn" id="btn-test-voice">Проверить голос</button>
+        </fieldset>
+        <fieldset>
+          <legend>СЛУХ</legend>
+          <label>Модель распознавания
+            <select name="sttModel">
+              <option value="groq">Облако · Groq Whisper Large-v3 — лучшее качество, бесплатно</option>
+              <option value="openai">Облако · OpenAI GPT-4o Transcribe — платно</option>
+              <option value="small">Локально · Whisper Small (≈250 МБ)</option>
+              <option value="base">Локально · Whisper Base (≈80 МБ)</option>
+              <option value="tiny">Локально · Whisper Tiny</option>
+            </select>
+          </label>
+          <label>Ключ Groq API (бесплатно: console.groq.com/keys)
+            <input type="password" name="sttGroqKey" autocomplete="off" spellcheck="false" placeholder="gsk_…">
+          </label>
+          <label>Ключ OpenAI API (только для GPT-4o Transcribe)
+            <input type="password" name="sttOpenaiKey" autocomplete="off" spellcheck="false" placeholder="sk-…">
+          </label>
+          <label>Язык речи
+            <select name="sttLanguage">
+              <option value="russian">Русский</option>
+              <option value="english">English</option>
+              <option value="auto">Определять автоматически</option>
+            </select>
+          </label>
+          <label class="check"><input type="checkbox" name="wakeWord"> Режим «Джарвис»: слушать постоянно и реагировать на имя</label>
+          <label class="check"><input type="checkbox" name="followUp"> Слушать ответ после реплики Джарвиса (диалог)</label>
+          <label>Город для погоды
+            <select name="city" id="set-city"></select>
+          </label>
+        </fieldset>
+        <fieldset class="span2">
+          <legend>ЯДРО · CLAUDE CODE</legend>
+          <div class="row2">
+            <label>Путь к claude.exe<input name="claudePath" placeholder="автоопределение"></label>
+            <label>Рабочая папка
+              <span class="with-btn"><input name="workDir"><button type="button" class="btn" id="btn-pick-dir"><svg><use href="#i-folder"/></svg></button></span>
+            </label>
+          </div>
+          <div class="row3">
+            <label>Модель
+              <select name="model">
+                <option value="">По умолчанию Claude Code</option>
+                <option value="sonnet">Sonnet — быстрее</option>
+                <option value="opus">Opus — умнее</option>
+                <option value="fable">Fable</option>
+                <option value="haiku">Haiku — самая быстрая</option>
+              </select>
+            </label>
+            <label>Глубина размышлений
+              <select name="effort">
+                <option value="">По умолчанию</option>
+                <option value="low">Низкая — быстрые ответы</option>
+                <option value="medium">Средняя</option>
+                <option value="high">Высокая</option>
+              </select>
+            </label>
+            <label>Права на действия
+              <select name="permissionMode">
+                <option value="plan">Только чтение и планы</option>
+                <option value="acceptEdits">Правка файлов (рекомендуется)</option>
+                <option value="auto">Авто — Claude сам решает</option>
+                <option value="bypassPermissions">Полный доступ (осторожно)</option>
+              </select>
+            </label>
+          </div>
+          <label class="check"><input type="checkbox" name="loadMcp"> Подключать MCP-серверы из настроек Claude Code (медленнее старт)</label>
+          <p class="hint">Режим «Правка файлов» разрешает Джарвису создавать и менять файлы в рабочей папке. Команды терминала будут отклоняться, пока вы не выберете «Авто» или «Полный доступ».</p>
+        </fieldset>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" class="btn" data-close>Отмена</button>
+        <button type="submit" class="btn btn-primary">Сохранить</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Boot sequence -->
+  <div class="boot" id="boot">
+    <div class="boot-ring"></div>
+    <div class="boot-title">J.A.R.V.I.S.</div>
+    <pre class="boot-log" id="boot-log"></pre>
+    <div class="boot-bar"><i id="boot-bar"></i></div>
+  </div>
+
+  <div class="toasts" id="toasts"></div>
+  <!-- free space for sandbox\hud\hud.js; cleared on every reload of the mod -->
+  <div id="sandbox-layer"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
