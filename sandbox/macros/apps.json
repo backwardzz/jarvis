@@ -23,7 +23,7 @@
     },
     {
       "id": "windows-settings",
-      "phrases": ["открой параметры windows", "параметры windows", "открой параметры компьютера"],
+      "phrases": ["открой параметры windows", "параметры windows", "открой настройки windows", "настройки windows", "открой параметры компьютера"],
       "do": { "type": "open", "target": "ms-settings:" }
     },
     {

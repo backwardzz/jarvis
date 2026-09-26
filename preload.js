@@ -28,7 +28,7 @@ contextBridge.exposeInMainWorld('jarvis', {
   },
   tts: { synth: invoke('tts:synth'), prepare: invoke('tts:prepare'), onStatus: listen('tts:status') },
   phrases: { load: invoke('phrases:load'), read: invoke('phrases:read'), onStatus: listen('phrases:status') },
-  macros: { run: invoke('macros:run'), list: invoke('macros:list'), onLoaded: listen('macros:loaded') },
+  macros: { route: invoke('macros:route'), runId: invoke('macros:runId'), block: invoke('macros:block'), list: invoke('macros:list'), onLoaded: listen('macros:loaded') },
   onNotice: listen('app:notice'),
   stt: { load: invoke('stt:load'), transcribe: invoke('stt:transcribe'), onStatus: listen('stt:status') },
   sys: { stats: invoke('sys:stats'), weather: invoke('sys:weather') },

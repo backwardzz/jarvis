@@ -97,3 +97,45 @@ test('a broken macro file is reported, the others keep working', () => {
   assert.equal(m.match('привет')?.macro.id, 'good.hi');
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('word forms and order still match, one-word phrases need an exact hit', () => {
+  const m = shipped();
+  assert.equal(m.match('открыть калькулятор')?.macro.id, 'apps.calculator');
+  assert.equal(m.match('паузу')?.macro.id, 'system.media-toggle');
+  assert.equal(m.match('спасибо джарвис')?.macro.id, 'jarvis.thanks');
+  assert.equal(m.match('угол'), null, '"угол" is not "гугл"');
+});
+
+test('routing: confident runs, doubtful goes to Claude, confirmed phrases are learned, rejected ones blocked', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-route-'));
+  const learnedFile = path.join(dir, 'learned.json');
+  fs.writeFileSync(path.join(dir, 'm.json'), JSON.stringify({ macros: [
+    { id: 'shot', phrases: ['сделай скриншот'], say: 'Готово.' },
+    { id: 'vol', phrases: ['громкость {number}'], say: '${number}' },
+  ] }));
+  const m = new Macros({ dir, learnedFile });
+  m.load();
+
+  assert.equal((await m.route('сделай скриншот')).kind, 'macro');
+  const doubt = await m.route('сделай скриншот экрана');
+  assert.equal(doubt.kind, 'maybe');
+  assert.equal(doubt.candidate.id, 'm.shot');
+  assert.equal(await m.route('напиши письмо маме'), null);
+
+  // Claude answered [[macro:m.shot]]: it runs, and the phrase now works on its own
+  const r = await m.runId('m.shot', 'сделай скриншот экрана');
+  assert.equal(r.reply.say, 'Готово.');
+  assert.equal((await m.route('сделай скриншот экрана')).kind, 'macro');
+  // a phrase with slots is filled, not learned verbatim
+  assert.equal((await m.runId('m.vol', 'громкость сорок')).reply.say, '40');
+  assert.equal((await m.runId('m.vol', 'громкость как вчера')).error, 'не понял параметры команды');
+
+  // "не то": this phrase never runs this macro again — and it survives a restart
+  m.block('сделай скриншот', 'm.shot');
+  const again = new Macros({ dir, learnedFile });
+  again.load();
+  assert.equal(again.match('сделай скриншот'), null);
+  assert.equal(again.match('сделай скриншот экрана')?.macro.id, 'm.shot');
+  assert.deepEqual([again.summary().learned, again.summary().blocked], [1, 1]);
+  fs.rmSync(dir, { recursive: true, force: true });
+});

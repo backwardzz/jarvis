@@ -351,21 +351,59 @@ function handleCommand(text, source) {
   runMacroOrAsk(text, source);
 }
 
-/** Voice macros (sandbox\macros) answer instantly; everything they do not know goes to Claude. */
+/**
+ * Routing: a confident macro (sandbox\macros) answers instantly; a doubtful one goes to Claude with the
+ * candidate attached, and Claude either runs it ([[macro:id]] — then the phrase is learned) or answers itself;
+ * everything else is Claude's.
+ */
 async function runMacroOrAsk(text, source) {
   if (app.settings?.macros !== false && api.macros) {
     const turn = ++app.macroTurn;
     setState('thinking');
     let r = null;
     try {
-      r = await api.macros.run(text);
+      r = await api.macros.route(text);
     } catch (e) {
       console.warn('macro', e.message);
     }
     if (turn !== app.macroTurn) return; // a newer command came in meanwhile
-    if (r) return macroDone(r);
+    if (r?.kind === 'macro') {
+      app.lastMacro = { text, id: r.result.id, source, at: Date.now() };
+      return macroDone(r.result);
+    }
+    if (r?.kind === 'maybe') {
+      addActivity('ROUTE', `не уверен: ${r.candidate.id} · ${r.candidate.score}% — решит Claude`, 'info');
+      return askBrain(text, source === 'voice', { macroHint: r.candidate });
+    }
   }
   askBrain(text, source === 'voice');
+}
+
+/** Claude chose a macro for the last request: run it, and the phrase becomes one of the macro's. */
+async function claudeMacro(id) {
+  const text = app.macroQuestion || '';
+  app.macroQuestion = null;
+  try {
+    const r = await api.macros.runId(id, text);
+    app.lastMacro = { text, id, source: app.lastSource, at: Date.now() };
+    if (text && !r.error) addActivity('ROUTE', `выучил фразу «${text}» → ${id}`, 'info');
+    macroDone(r);
+  } catch (e) {
+    toast('Макрос не сработал: ' + errText(e), 'bad', 6000);
+  }
+}
+
+/** "Не то": the last macro misfired — never on this phrase again, and the request goes to Claude. */
+function macroWrong(text) {
+  const last = app.lastMacro;
+  app.lastMacro = null;
+  if (!last || Date.now() - last.at > 2 * 60 * 1000) return askBrain(text, app.lastSource === 'voice');
+  api.macros.block(last.text, last.id);
+  addActivity('ROUTE', `фраза «${last.text}» больше не запускает ${last.id}`, 'info');
+  addLog('system', `Макрос ${last.id} сработал по ошибке — запомнил, передаю запрос Claude.`);
+  askBrain(last.text, last.source === 'voice', {
+    note: `Предыдущую команду «${last.text}» HUD по ошибке принял за макрос ${last.id} и выполнил его; пользователь сказал, что это не то. Этот макрос на эту фразу больше не сработает. Коротко извинись и сделай то, что он просил на самом деле; если смысл неясен — переспроси. Не выдумывай теги: [[call:…]] только для загруженных плагинов песочницы.`,
+  });
 }
 
 function macroDone(r) {
@@ -445,6 +483,10 @@ function runIntent(intent) {
         : tr(`Открываю ${p.name}, сэр.`, `Opening ${p.name}, sir.`));
       break;
     }
+    case 'wrong':
+      speaker.clear();
+      macroWrong(intent.text);
+      break;
     case 'settings':
       openSettings();
       reply(tr('Настройки на экране, сэр.', 'Settings are on screen, sir.'));
@@ -454,8 +496,9 @@ function runIntent(intent) {
   }
 }
 
-function askBrain(text, fromVoice) {
+function askBrain(text, fromVoice, extra = {}) {
   speaker.clear();
+  app.macroQuestion = extra.macroHint ? text : null; // learned as the macro's phrase if Claude picks it
   if (app.loggedIn === false) {
     const msg = 'Сэр, ядро Claude не авторизовано. Нажмите «Авторизовать Claude» на панели ядра — откроется окно входа.';
     addLog('system', msg);
@@ -476,12 +519,12 @@ function askBrain(text, fromVoice) {
   app.brainBusy = true;
   app.brainTurn += 1; // the main process numbers turns sequentially; ignore the previous turn's "stopped"
   if (fromVoice && app.settings?.phraseAck !== false) {
-    const c = pickClip('ack');
+    const c = pickClip('thinking');
     if (c) speaker.clip(c);
   }
   setState('thinking');
   chip('#chip-core', 'busy');
-  api.brain.ask(text, { voice: fromVoice }).then((turn) => {
+  api.brain.ask(text, { voice: fromVoice, ...extra }).then((turn) => {
     if (turn > app.brainTurn) app.brainTurn = turn;
   });
 }
@@ -522,6 +565,8 @@ async function hudCommand(kind, arg) {
     api.sandbox?.close(arg.trim());
   } else if (kind === 'call') {
     callPlugin(arg);
+  } else if (kind === 'macro') {
+    claudeMacro(arg.trim());
   } else if (kind === 'panel') {
     const id = arg.trim().toLowerCase();
     expandPanel(id === 'close' ? null : id);

@@ -23,20 +23,39 @@ function ratio(a, b) {
   return (200 * prev[b.length]) / (a.length + b.length);
 }
 
+// Russian endings, longest first: enough to tell "открыть", "открой" and "откройте" are one word.
+const ENDING = /(ться|тесь|ться|ешь|ете|ите|ать|ять|ить|еть|ыть|оть|уть|ого|его|ому|ему|ыми|ими|ой|ей|ий|ый|ая|яя|ое|ее|ые|ие|ую|юю|ом|ем|ам|ям|ах|ях|ов|ев|ью|ия|а|я|о|е|ы|и|у|ю|ь|й)$/;
+
+function stem(word) {
+  const s = word.replace(ENDING, '');
+  return s.length >= 3 ? s : word;
+}
+
+/** Closeness of two words in percent; the same stem counts as the same word. */
+function wordRatio(a, b) {
+  return a === b || stem(a) === stem(b) ? 100 : ratio(a, b);
+}
+
 /** Share of words that have a close counterpart (>70 %), weighted by how close — Priler's word score. */
 function wordScore(inputWords, phraseWords) {
   if (!inputWords.length || !phraseWords.length) return 0;
   let matched = 0;
   for (const w of inputWords) {
     let best = 0;
-    for (const p of phraseWords) best = Math.max(best, ratio(w, p));
+    for (const p of phraseWords) best = Math.max(best, wordRatio(w, p));
     if (best > 70) matched += best / 100;
   }
   return (matched / Math.max(inputWords.length, phraseWords.length)) * 100;
 }
 
-/** Combined phrase similarity: 60 % characters, 40 % words (as in Priler/jarvis commands.rs). */
+/**
+ * Combined phrase similarity: 60 % characters, 40 % words (as in Priler/jarvis commands.rs).
+ * The same words in other forms or order ("паузу", "ютуб открой") count as a near-exact match.
+ */
 function similarity(input, phrase) {
+  const a = input.split(' ').map(stem).sort().join(' ');
+  const b = phrase.split(' ').map(stem).sort().join(' ');
+  if (a === b) return 98;
   return ratio(input, phrase) * 0.6 + wordScore(input.split(' '), phrase.split(' ')) * 0.4;
 }
 
@@ -101,4 +120,4 @@ function parseDuration(text) {
   return Math.round(seconds);
 }
 
-module.exports = { norm, ratio, wordScore, similarity, parseNumber, parseDuration };
+module.exports = { norm, ratio, stem, wordRatio, wordScore, similarity, parseNumber, parseDuration };

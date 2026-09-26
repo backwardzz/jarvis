@@ -31,3 +31,10 @@ test('similarity tolerates recognition slips but not different commands', () => 
   assert.ok(similarity(norm('выключи свет'), norm('выключи звук')) < 75);
   assert.ok(similarity(norm('открой калькулятор и посчитай'), norm('открой калькулятор')) < 75);
 });
+
+test('word forms share a stem', () => {
+  const { stem } = require('../src/rutext');
+  assert.equal(stem('открыть'), stem('открой'));
+  assert.equal(stem('паузу'), stem('пауза'));
+  assert.notEqual(stem('звук'), stem('свет'));
+});

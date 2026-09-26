@@ -58,7 +58,7 @@ export function createMockApi() {
       }),
       weather: async () => ({ city: 'Астана', temp: 11.4, feels: 8.9, humidity: 54, wind: 4.2, code: 2, text: 'переменная облачность', max: 14, min: 5 }),
     },
-    macros: { run: async () => null, list: async () => ({ count: 0, files: [], errors: [] }), onLoaded: off('win') },
+    macros: { route: async () => null, runId: async () => null, block: async () => true, list: async () => ({ count: 0, files: [], errors: [] }), onLoaded: off('win') },
     shell: { openExternal: async (u) => window.open(u, '_blank') },
     win: { minimize() {}, maximize() {}, close() {}, onState: off('win') },
     onHotkey: off('hotkey'),

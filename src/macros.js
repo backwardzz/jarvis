@@ -8,21 +8,28 @@
  *
  * Phrases may carry slots: "громкость {number}", "таймер на {duration}", "найди в ютубе {text}".
  * The format of every action is described in sandbox\README.md.
+ *
+ * Routing: a confident match runs at once; a doubtful one goes to Claude together with the candidate, and Claude
+ * either runs it ([[macro:id]]) or answers itself. What Claude confirms is learned as a new phrase of that macro,
+ * what the user rejects ("не то") never triggers that macro again — both kept in learnedFile.
  */
 const { EventEmitter } = require('events');
 const { spawn, execFile } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { norm, similarity, parseNumber, parseDuration } = require('./rutext');
+const { norm, wordRatio, similarity, parseNumber, parseDuration } = require('./rutext');
 
-const THRESHOLD = 75;
+const THRESHOLD = 75; // below: not this macro
+const CONFIDENT = 90; // from here on: run at once; between the two Claude decides
+const SINGLE_WORD = 92; // one-word phrases ("гугл", "пауза") are the easiest to hear by mistake
 const NAME = /^(?:(?:эй|ну|окей|ok|hey)\s+)?(?:джарви\p{L}*|джерви\p{L}*|жарви\p{L}*|jarvis)\s*/u;
-const FILLERS = /^(?:(?:пожалуйста|будь добр[аы]?|слушай|ну|а|сэр)\s+)+|(?:\s+(?:пожалуйста|сэр))+$/u;
+const FILLERS = /^(?:(?:пожалуйста|будь добр[аы]?|слушай|ну|а|сэр)\s+)+|(?:\s+(?:пожалуйста|сэр|джарви\p{L}*|jarvis))+$/u;
 const RENDERER_ACTIONS = new Set(['say', 'ask', 'hud', 'quit', 'notify']);
 
 function clean(text) {
-  return norm(text).replace(NAME, '').replace(FILLERS, '').trim();
+  // "покажи мне заметки" is "покажи заметки"
+  return norm(text).replace(NAME, '').replace(FILLERS, '').replace(/(^| )мне(?= |$)/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 function slotKind(name) {
@@ -87,11 +94,59 @@ class Macros extends EventEmitter {
    * @param {string} [o.dataDir]    scratch folder (inline AutoHotkey scripts)
    * @param {string} [o.picturesDir]
    */
-  constructor({ dir, host, sandbox, shell, clipboard, dataDir, picturesDir, log = () => {} }) {
+  constructor({ dir, host, sandbox, shell, clipboard, dataDir, picturesDir, learnedFile, log = () => {} }) {
     super();
-    Object.assign(this, { dir, host, sandbox, shell, clipboard, dataDir, picturesDir, log });
+    Object.assign(this, { dir, host, sandbox, shell, clipboard, dataDir, picturesDir, learnedFile, log });
     this.list = [];
     this.errors = [];
+    this.learned = { aliases: {}, blocked: {} };
+    try { Object.assign(this.learned, JSON.parse(fs.readFileSync(learnedFile, 'utf8'))); } catch { /* nothing learned yet */ }
+  }
+
+  saveLearned() {
+    if (!this.learnedFile) return;
+    try {
+      fs.mkdirSync(path.dirname(this.learnedFile), { recursive: true });
+      fs.writeFileSync(this.learnedFile, JSON.stringify(this.learned, null, 2), 'utf8');
+    } catch (e) {
+      this.log('macros learned', e.message);
+    }
+  }
+
+  /** Adds phrases the user taught (via Claude's confirmations) to a macro. */
+  withLearned(macro) {
+    const extra = (this.learned.aliases[macro.id] || []).map((t) => ({ ...compilePhrase(t), learned: true }));
+    return extra.length ? { ...macro, compiled: [...macro.compiled, ...extra] } : macro;
+  }
+
+  all() {
+    return [...this.list, ...this.widgetMacros()].map((m) => this.withLearned(m));
+  }
+
+  /** "Сделай то же на эту фразу": the utterance becomes one more phrase of the macro. */
+  learn(text, id) {
+    const phrase = clean(text);
+    const macro = this.all().find((m) => m.id === id);
+    if (!phrase || !macro || macro.compiled.some((p) => p.re)) return false; // phrases with slots are not learned verbatim
+    const list = this.learned.aliases[id] || [];
+    if (list.includes(phrase) || macro.compiled.some((p) => p.text === phrase)) return false;
+    this.learned.aliases[id] = [...list, phrase].slice(-50);
+    const blocked = this.learned.blocked[phrase];
+    if (blocked) this.learned.blocked[phrase] = blocked.filter((b) => b !== id);
+    this.saveLearned();
+    this.log('macro learned', id, phrase);
+    return true;
+  }
+
+  /** "Не то": this utterance never triggers this macro again. */
+  block(text, id) {
+    const phrase = clean(text);
+    if (!phrase || !id) return false;
+    this.learned.blocked[phrase] = [...new Set([...(this.learned.blocked[phrase] || []), id])];
+    if (this.learned.aliases[id]) this.learned.aliases[id] = this.learned.aliases[id].filter((a) => a !== phrase);
+    this.saveLearned();
+    this.log('macro blocked', id, phrase);
+    return true;
   }
 
   // ------------------------------------------------------------ loading
@@ -129,7 +184,13 @@ class Macros extends EventEmitter {
   }
 
   summary() {
-    return { count: this.list.length, files: [...new Set(this.list.map((m) => m.file))], errors: this.errors };
+    return {
+      count: this.list.length,
+      files: [...new Set(this.list.map((m) => m.file))],
+      learned: Object.values(this.learned.aliases).reduce((n, a) => n + a.length, 0),
+      blocked: Object.keys(this.learned.blocked).length,
+      errors: this.errors,
+    };
   }
 
   /** Windows of the sandbox as ready-made macros: "открой заметки", "закрой таймер". */
@@ -152,13 +213,18 @@ class Macros extends EventEmitter {
   }
 
   // ------------------------------------------------------------ matching
-  /** Best macro for an utterance, or null. Long free-form requests are left to Claude. */
+  /**
+   * Best macro for an utterance, or null: { macro, slots, score, confident }.
+   * Long free-form requests are left to Claude; doubtful hits come back with confident = false.
+   */
   match(text) {
     const input = clean(text);
     if (!input) return null;
-    const words = input.split(' ').length;
+    const inputWords = input.split(' ');
+    const blocked = this.learned.blocked[input] || [];
     let best = null;
-    for (const macro of [...this.list, ...this.widgetMacros()]) {
+    for (const macro of this.all()) {
+      if (blocked.includes(macro.id)) continue;
       for (const p of macro.compiled) {
         if (p.re) {
           const m = input.match(p.re);
@@ -171,26 +237,73 @@ class Macros extends EventEmitter {
           });
           // an exact template beats any fuzzy hit; among templates the one with more fixed words wins
           const score = 100 + (p.text.split(' ').length - p.slots.length);
-          if (ok && score > (best?.score || 0)) best = { macro, slots, score };
+          if (ok && score > (best?.score || 0)) best = { macro, slots, score, confident: true };
           continue;
         }
-        if (words > p.text.split(' ').length + 3) continue;
-        const score = input === p.text ? 100 : similarity(input, p.text);
-        if (score >= macro.threshold && score > (best?.score || 0)) best = { macro, slots: {}, score };
+        const phraseWords = p.text.split(' ');
+        if (inputWords.length > phraseWords.length + 3) continue;
+        let score;
+        if (input === p.text) score = 100;
+        else {
+          // every word of the phrase must be heard in some form: "выключи" alone is not "выключи звук"
+          if (!phraseWords.every((w) => inputWords.some((i) => wordRatio(i, w) > 70))) continue;
+          score = similarity(input, p.text);
+        }
+        const need = phraseWords.length === 1 ? Math.max(macro.threshold, SINGLE_WORD) : macro.threshold;
+        if (score < need || score <= (best?.score || 0)) continue;
+        best = { macro, slots: {}, score, confident: score >= Math.max(CONFIDENT, need) };
       }
     }
     return best;
   }
 
+  /**
+   * What to do with an utterance:
+   *   { kind: 'macro', result }  — a confident match, already run;
+   *   { kind: 'maybe', candidate: { id, title, phrases, score } } — Claude should decide;
+   *   null — not a macro at all.
+   */
+  async route(text) {
+    const hit = this.match(text);
+    if (!hit) return null;
+    if (hit.confident) return { kind: 'macro', result: await this.execute(hit) };
+    const { macro, score } = hit;
+    return {
+      kind: 'maybe',
+      candidate: { id: macro.id, title: macro.title || '', phrases: macro.compiled.slice(0, 4).map((p) => p.text), score: Math.round(score) },
+    };
+  }
+
+  /** Runs a macro Claude chose ([[macro:id]]) for this utterance, and learns the utterance as its phrase. */
+  async runId(id, text = '') {
+    const macro = this.all().find((m) => m.id === id);
+    if (!macro) return { id, reply: {}, hud: [], error: `нет макроса «${id}»` };
+    let slots = {};
+    const templates = macro.compiled.filter((p) => p.re);
+    if (templates.length) {
+      const input = clean(text);
+      const hit = templates.map((p) => input.match(p.re) && p).find(Boolean);
+      if (!hit) return { id, reply: {}, hud: [], error: 'не понял параметры команды' };
+      const m = input.match(hit.re);
+      hit.slots.forEach((name, i) => { const v = parseSlot(name, m[i + 1]); if (v) slots[name] = v; });
+      if (Object.keys(slots).length !== hit.slots.length) return { id, reply: {}, hud: [], error: 'не понял параметры команды' };
+    } else if (text) {
+      this.learn(text, id);
+    }
+    return this.execute({ macro, slots, score: 100 });
+  }
+
   // ------------------------------------------------------------ running
   /**
-   * Matches and runs a macro. Returns null when nothing matched, otherwise
+   * Matches and runs a macro if the match is confident. Returns null otherwise, or
    * { id, score, value, reply: { sound, say, notify }, hud: [renderer actions], error }.
    */
   async run(text) {
     const hit = this.match(text);
-    if (!hit) return null;
-    const { macro, slots, score } = hit;
+    return hit?.confident ? this.execute(hit) : null;
+  }
+
+  async execute({ macro, slots, score }) {
     const vars = {};
     for (const [k, v] of Object.entries(slots)) { vars[k] = v.value; vars[`${k}.raw`] = v.raw; }
     const actions = [].concat(macro.do || []).map((a) => fill(a, vars));
@@ -209,8 +322,8 @@ class Macros extends EventEmitter {
     vars.result = value ?? '';
     const reply = {
       sound: macro.say ? (macro.sound || '') : (macro.sound ?? 'ok'),
-      say: macro.say ? fill(macro.say, vars) : '',
-      notify: macro.notify ? fill(macro.notify, vars) : '',
+      say: macro.say ? String(fill(macro.say, vars)) : '',
+      notify: macro.notify ? String(fill(macro.notify, vars)) : '',
     };
     return { id: macro.id, score: Math.round(score), value, reply, hud, error };
   }

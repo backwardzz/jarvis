@@ -129,6 +129,7 @@ const macros = new Macros({
   shell,
   clipboard,
   dataDir: path.join(USER, 'sandbox'),
+  learnedFile: path.join(USER, 'macros-learned.json'),
   log: (...a) => log(...a),
 });
 sandbox.statusExtra = () => ({ macros: macros.summary() });
@@ -180,7 +181,7 @@ const publicSettings = () => ({
   ...settings.data, voice: voiceId(), voices: tts.catalog(packs), phrasePacks: phrases.catalog(), hotkey: HOTKEY, version: app.getVersion(),
 });
 
-async function hudContext(fromVoice, text) {
+async function hudContext(fromVoice, text, opts = {}) {
   const now = new Date();
   const when = now.toLocaleString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   let wx = '';
@@ -201,7 +202,11 @@ async function hudContext(fromVoice, text) {
   const macroLine = ` | Макросы (sandbox\\macros, выполняются без тебя): ${mc.count}${macroIds}`;
   const fresh = sandbox.takeNewErrors();
   const errors = fresh.length ? ` | Ошибки песочницы с прошлого запроса: ${fresh.map((e) => `[${e.source}] ${e.message}`).join('; ').slice(0, 1500)}` : '';
-  return `[HUD-контекст | ${when}${wx} | Язык ответа: ${lang} | Голос: ${tts.findVoice(voiceId()).label}${voices} | Проекты: ${list}${sandboxLine}${macroLine}${errors}]\n`
+  // the router was not sure: Claude decides whether this is the macro ([[macro:id]]) or a request of its own
+  const c = opts.macroHint;
+  const hint = c ? ` | Похоже на макрос ${c.id} (фразы: ${c.phrases.join('; ')}; сходство ${c.score}%). Если просили именно это — ответь одним тегом [[macro:${c.id}]] без слов, иначе ответь сам` : '';
+  const note = opts.note ? ` | ${String(opts.note).slice(0, 300)}` : '';
+  return `[HUD-контекст | ${when}${wx} | Язык ответа: ${lang} | Голос: ${tts.findVoice(voiceId()).label}${voices} | Проекты: ${list}${sandboxLine}${macroLine}${errors}${hint}${note}]\n`
     + (fromVoice ? 'Голосовая команда (распознана автоматически, возможны ошибки): ' : 'Текстовая команда: ');
 }
 
@@ -429,7 +434,7 @@ function registerIpc() {
   });
 
   ipcMain.handle('brain:ask', async (_e, text, opts = {}) => {
-    const prompt = (await hudContext(!!opts.voice, text)) + String(text || '');
+    const prompt = (await hudContext(!!opts.voice, text, opts)) + String(text || '');
     return brain.ask(prompt, brainSettings());
   });
   ipcMain.handle('brain:stop', () => brain.stop());
@@ -465,7 +470,9 @@ function registerIpc() {
   ipcMain.handle('phrases:read', (_e, pack, file) => new Uint8Array(phrases.read(String(pack), String(file))));
 
   // voice macros: matched and run here, the renderer only speaks the reply and does HUD actions
-  ipcMain.handle('macros:run', (_e, text) => (settings.data.macros === false ? null : macros.run(String(text || ''))));
+  ipcMain.handle('macros:route', (_e, text) => (settings.data.macros === false ? null : macros.route(String(text || ''))));
+  ipcMain.handle('macros:runId', (_e, id, text) => macros.runId(String(id), String(text || '')));
+  ipcMain.handle('macros:block', (_e, text, id) => macros.block(String(text || ''), String(id)));
   ipcMain.handle('macros:list', () => macros.summary());
 
   ipcMain.handle('stt:load', (_e, size) => stt.load(size || settings.data.sttModel));

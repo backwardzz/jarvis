@@ -7,7 +7,8 @@
  * into %APPDATA%\JARVIS\phrases (like the offline TTS voices) and are not part of this repository.
  *
  * Reactions: greet_morning | greet_day | greet_evening | greet_night | greet | ready — start-up;
- * reply — the name alone was heard; ack — a command was accepted; done — a command finished;
+ * reply — the name alone was heard; ack — a command was accepted; loading — Claude is working on it;
+ * done — a command finished;
  * not_found, thanks, stupid, joke, goodbye, game_mode.
  */
 const { EventEmitter } = require('events');
@@ -28,7 +29,7 @@ const PACKS = {
       ['reply2.wav', 'К вашим услугам.', 'reply'],
       ['reply3.wav', 'Да, сэр.', 'reply'],
       ['ok1.wav', 'Есть.', 'ack'],
-      ['ok2.wav', 'Загружаю, сэр.', 'ack'],
+      ['ok2.wav', 'Загружаю, сэр.', 'loading'],
       ['ok3.wav', 'Запрос выполнен, сэр.', 'done'],
       ['not_found.wav', 'Чего вы пытаетесь добиться, сэр?', 'not_found'],
       ['stupid.wav', 'Очень тонкое замечание, сэр.', 'stupid'],
@@ -54,7 +55,7 @@ const PACKS = {
       ['reply3.mp3', 'Да, сэр.', 'reply'],
       ['reply5.mp3', 'К вашим услугам, сэр.', 'reply'],
       ['reply6.mp3', 'Слушаю.', 'reply'],
-      ['ok1.mp3', 'Загружаю, сэр.', 'ack'],
+      ['ok1.mp3', 'Загружаю, сэр.', 'loading'],
       ['ok2.mp3', 'Как скажете, сэр.', 'ack'],
       ['ok3.mp3', 'Слушаюсь, сэр.', 'ack'],
       ['stupid.mp3', 'Очень тонкое замечание, сэр.', 'stupid'],
@@ -78,7 +79,7 @@ const PACKS = {
       ['reply1.wav', 'Слушаю, сэр.', 'reply'],
       ['reply2.wav', 'К вашим услугам, сэр.', 'reply'],
       ['ok1.wav', 'Есть.', 'ack'],
-      ['ok2.wav', 'Загружаю, сэр.', 'ack'],
+      ['ok2.wav', 'Загружаю, сэр.', 'loading'],
       ['ok4.wav', 'Как пожелаете.', 'ack'],
       ['ok3.wav', 'Запрос выполнен, сэр.', 'done'],
       ['not_found.wav', 'Чего вы пытаетесь добиться, сэр?', 'not_found'],

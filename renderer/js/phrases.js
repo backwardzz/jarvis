@@ -18,8 +18,9 @@ const FALLBACK = {
   ],
 };
 
-// A macro asks for "ok": either an acknowledgement or a report that it is done.
-const ALIASES = { ok: ['ack', 'done'] };
+// A macro asks for "ok": an acknowledgement or a report that it is done — never "Загружаю, сэр".
+// While Claude works on a request: an acknowledgement or "Загружаю, сэр".
+const ALIASES = { ok: ['ack', 'done'], thinking: ['ack', 'loading'] };
 
 export function dayPart(hour = new Date().getHours()) {
   return hour < 5 ? 'night' : hour < 12 ? 'morning' : hour < 18 ? 'day' : hour < 23 ? 'evening' : 'night';

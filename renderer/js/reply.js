@@ -1,6 +1,6 @@
 // Turns a streamed Claude reply into speakable sentences and HUD commands.
 // non-greedy up to "]]", so JSON arguments of [[call:…]] may contain single brackets
-const TAG = /\[\[(open|project|voice|panel|window|close|call):(.*?)\]\]/g;
+const TAG = /\[\[(open|project|voice|panel|window|close|call|macro):(.*?)\]\]/g;
 const SPEAK_LIMIT = 650;
 
 export function stripTags(text) {
