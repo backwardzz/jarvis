@@ -2,7 +2,7 @@
 /**
  * `--selftest-sandbox`: exercises the live sandbox end to end and cleans up after itself —
  * widget API and storage, plugin calls and events, a widget created/edited/restyled/deleted on the fly,
- * a plugin hot-swapped, and a HUD mod applied.
+ * a plugin hot-swapped, a HUD mod applied, and a voice macro written, run and removed on the fly.
  */
 const fs = require('fs');
 const path = require('path');
@@ -18,13 +18,14 @@ async function waitFor(fn, ms = 8000) {
   }
 }
 
-async function run({ sandbox, win, root, log, capture }) {
+async function run({ sandbox, macros, win, root, log, capture }) {
   const results = [];
   const check = (name, ok, detail = '') => { results.push(`${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ' — ' + detail : ''}`); };
   const inWidget = (id, js) => sandbox.windows.get(id).webContents.executeJavaScript(js);
   const liveDir = path.join(root, 'widgets', 'selftest-live');
   const echoFile = path.join(root, 'plugins', 'selftest-echo.js');
   const hudCss = path.join(root, 'hud', 'hud.css');
+  const macroFile = path.join(root, 'macros', 'selftest.json');
   const hudCssBefore = fs.readFileSync(hudCss, 'utf8');
 
   try {
@@ -84,6 +85,28 @@ async function run({ sandbox, win, root, log, capture }) {
     check('hud.css applies to the HUD live', !!modded);
     fs.writeFileSync(hudCss, hudCssBefore);
 
+    // 6. voice macros: a file dropped into sandbox\macros works at once, slots included
+    if (macros) {
+      fs.writeFileSync(macroFile, JSON.stringify({ macros: [
+        { id: 'echo', phrases: ['проверка самотеста номер {number}'], say: 'Номер ${number}.' },
+        { id: 'win', phrases: ['самотест открой заметки'], do: { type: 'window', id: 'notes' } },
+      ] }));
+      const hit = await waitFor(async () => {
+        const r = await macros.run('Джарвис, проверка самотеста номер двадцать пять');
+        return r?.id === 'selftest.echo' ? r : null;
+      });
+      check('new macro file works without a restart, slots parsed', hit?.reply?.say === 'Номер 25.', JSON.stringify(hit?.reply || null));
+      const opened = await macros.run('самотест открой заметки');
+      check('macro opens a sandbox window', opened?.id === 'selftest.win' && !opened.error && sandbox.windows.has('notes'), JSON.stringify(opened));
+      const builtIn = macros.match('открой таймер');
+      check('sandbox windows answer to their names', builtIn?.macro.id === 'sandbox.open-timer', builtIn?.macro.id || 'нет');
+      const toClaude = macros.match('сделай мне сайт для кофейни с меню и ценами');
+      check('free-form request is left to Claude', !toClaude, toClaude?.macro.id || '');
+      fs.rmSync(macroFile, { force: true });
+      const gone = await waitFor(() => !macros.list.some((m) => m.file === 'selftest.json'));
+      check('deleting the macro file unloads it', !!gone);
+    }
+
     await sleep(600);
     if (capture) {
       for (const [id, w] of sandbox.windows) {
@@ -98,6 +121,7 @@ async function run({ sandbox, win, root, log, capture }) {
   } finally {
     fs.rmSync(liveDir, { recursive: true, force: true });
     fs.rmSync(echoFile, { force: true });
+    fs.rmSync(macroFile, { force: true });
     fs.writeFileSync(hudCss, hudCssBefore);
   }
   log('sandbox selftest\n  ' + results.join('\n  '));

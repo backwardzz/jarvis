@@ -2,3 +2,5 @@ node_modules/
 dist/
 *.log
 .env
+# written by JARVIS while it runs
+sandbox/.status.json
