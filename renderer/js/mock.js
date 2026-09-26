@@ -6,6 +6,8 @@ export function createMockApi() {
     voice: 'ru-RU-DmitryNeural', pitch: -6, rate: 4, voiceFx: true, volume: 0.9, sttModel: 'small', sttLanguage: 'russian',
     wakeWord: false, followUp: false, greeting: false, sounds: true, claudePath: '', workDir: 'D:\\', model: '', effort: '',
     permissionMode: 'acceptEdits', loadMcp: false, city: { name: 'Астана', lat: 51.1694, lon: 71.4491 }, sessionId: null,
+    phrasePack: '', phraseAck: true, xttsUrl: 'http://127.0.0.1:8020', warmCore: true, macros: true,
+    phrasePacks: [{ id: 'jarvis-og', title: 'Оригинал из фильма', note: 'фразы Джарвиса из русского дубляжа', kb: 3400, ready: false }],
     voices: [
       { id: 'ru-RU-DmitryNeural', label: 'Дмитрий — русский нейроголос', lang: 'ru', group: 'online', groupLabel: 'Онлайн · Microsoft Neural (нужен интернет)', offline: false, ready: true },
       { id: 'edge:dmitry-jarvis', label: 'Дмитрий «Джарвис» — ниже и спокойнее', lang: 'ru', group: 'online', groupLabel: 'Онлайн · Microsoft Neural (нужен интернет)', offline: false, ready: true },
@@ -56,6 +58,7 @@ export function createMockApi() {
       }),
       weather: async () => ({ city: 'Астана', temp: 11.4, feels: 8.9, humidity: 54, wind: 4.2, code: 2, text: 'переменная облачность', max: 14, min: 5 }),
     },
+    macros: { run: async () => null, list: async () => ({ count: 0, files: [], errors: [] }), onLoaded: off('win') },
     shell: { openExternal: async (u) => window.open(u, '_blank') },
     win: { minimize() {}, maximize() {}, close() {}, onState: off('win') },
     onHotkey: off('hotkey'),

@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, protocol, net, shell, globalShortcut, session, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, protocol, net, shell, globalShortcut, session, dialog, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -33,6 +33,9 @@ const system = require('./src/system');
 const { Projects } = require('./src/projects');
 const { HotReload } = require('./src/hotreload');
 const { Sandbox, PARTITION: SANDBOX_PARTITION } = require('./src/sandbox');
+const { PhrasePacks } = require('./src/phrases');
+const { Macros } = require('./src/macros');
+const { WinHost } = require('./src/winhost');
 
 const RENDERER_DIR = path.join(__dirname, 'renderer');
 const ASSETS_DIR = path.join(__dirname, 'assets');
@@ -76,6 +79,10 @@ const DEFAULTS = {
   rate: 4,
   voiceFx: true,
   volume: 0.9,
+  phrasePack: 'jarvis-og', // pre-recorded JARVIS phrases, '' = off (src/phrases.js)
+  phraseAck: true, // confirm a voice command with a phrase while Claude is thinking
+  xttsUrl: 'http://127.0.0.1:8020',
+  xttsSpeaker: '', // speaker sample for the clone voice; '' = stitched from the film phrases
   sttModel: 'groq',
   sttGroqKey: '',
   sttOpenaiKey: '',
@@ -89,6 +96,8 @@ const DEFAULTS = {
   model: '',
   effort: '',
   permissionMode: 'acceptEdits',
+  warmCore: true, // keep Claude Code running between commands (src/brain.js)
+  macros: true, // instant voice macros from sandbox/macros (src/macros.js)
   loadMcp: false,
   allowedTools: 'WebSearch,WebFetch',
   city: { name: 'Астана', in: 'Астане', lat: 51.1694, lon: 71.4491 },
@@ -97,10 +106,11 @@ const DEFAULTS = {
 };
 const settings = new JsonStore(path.join(USER, 'settings.json'), DEFAULTS);
 const projects = new Projects(path.join(USER, 'projects.json'), path.join(USER, 'thumbs'), path.join(ASSETS_DIR, 'thumbs'));
-const brain = new Brain({ personaFile: path.join(USER, 'persona.md') });
+const brain = new Brain({ personaFile: path.join(USER, 'persona.md'), log: (...a) => log(...a) });
 brain.sessionId = flag('claude') ? null : settings.data.sessionId || null;
 const stt = new SpeechRecognizer(path.join(USER, 'models'), (k) => settings.data[k]);
 const packs = new VoicePacks(path.join(USER, 'voices'));
+const phrases = new PhrasePacks(path.join(USER, 'phrases'));
 const hot = new HotReload(__dirname);
 let hotBoot = !!flag('hot'); // this start was a sandbox reload, not a cold start
 const sandbox = new Sandbox({
@@ -111,6 +121,17 @@ const sandbox = new Sandbox({
   icon: path.join(ASSETS_DIR, 'icon.ico'),
   log: (...a) => log(...a),
 });
+const winhost = new WinHost({ log: (...a) => log(...a) });
+const macros = new Macros({
+  dir: path.join(SANDBOX_DIR, 'macros'),
+  host: winhost,
+  sandbox,
+  shell,
+  clipboard,
+  dataDir: path.join(USER, 'sandbox'),
+  log: (...a) => log(...a),
+});
+sandbox.statusExtra = () => ({ macros: macros.summary() });
 
 let win = null;
 const send = (channel, payload) => { if (win && !win.isDestroyed()) win.webContents.send(channel, payload); };
@@ -123,6 +144,9 @@ sandbox.on('hud', (h) => send('sandbox:hud', h));
 sandbox.on('action', (a) => send('sandbox:action', a));
 sandbox.on('error', (e) => send('sandbox:error', e));
 sandbox.on('event', (e) => send('sandbox:event', e));
+sandbox.on('macros', () => macros.load());
+macros.on('problem', (e) => sandbox.error(e.source, e.message));
+macros.on('loaded', (m) => { log('macros', { count: m.count, files: m.files }); send('macros:loaded', m); });
 
 function saveWindowState() {
   if (!win || win.isDestroyed() || win.isMinimized()) return;
@@ -143,6 +167,7 @@ brain.on('event', (ev) => {
 });
 stt.on('status', (s) => { if (s.state !== 'loading') log('stt', s); send('stt:status', s); });
 packs.on('status', (s) => { if (s.state !== 'downloading') log('voice pack', s); send('tts:status', s); });
+phrases.on('status', (s) => { if (s.state !== 'downloading') log('phrases', s); send('phrases:status', s); });
 
 // ---------- helpers ----------
 function voiceLang() {
@@ -151,7 +176,9 @@ function voiceLang() {
 
 // --voice=<id> tries a voice without touching the saved settings (diagnostics)
 const voiceId = () => (flag('voice') ? String(flag('voice')) : settings.data.voice);
-const publicSettings = () => ({ ...settings.data, voice: voiceId(), voices: tts.catalog(packs), hotkey: HOTKEY, version: app.getVersion() });
+const publicSettings = () => ({
+  ...settings.data, voice: voiceId(), voices: tts.catalog(packs), phrasePacks: phrases.catalog(), hotkey: HOTKEY, version: app.getVersion(),
+});
 
 async function hudContext(fromVoice, text) {
   const now = new Date();
@@ -168,9 +195,13 @@ async function hudContext(fromVoice, text) {
   const sb = sandbox.summary();
   const sandboxLine = ` | Песочница ${SANDBOX_DIR} (правила: sandbox\\README.md): окна ${sb.widgets.join(', ') || 'нет'}`
     + `${sb.open.length ? ` (открыты: ${sb.open.join(', ')})` : ''}, плагины ${sb.plugins.join(', ') || 'нет'}`;
+  const mc = macros.summary();
+  // the macro ids ride along only when the request is about commands or macros
+  const macroIds = /макрос|команд|фраз/i.test(text || '') ? `: ${macros.list.map((m) => m.id).join(', ')}` : '';
+  const macroLine = ` | Макросы (sandbox\\macros, выполняются без тебя): ${mc.count}${macroIds}`;
   const fresh = sandbox.takeNewErrors();
   const errors = fresh.length ? ` | Ошибки песочницы с прошлого запроса: ${fresh.map((e) => `[${e.source}] ${e.message}`).join('; ').slice(0, 1500)}` : '';
-  return `[HUD-контекст | ${when}${wx} | Язык ответа: ${lang} | Голос: ${tts.findVoice(voiceId()).label}${voices} | Проекты: ${list}${sandboxLine}${errors}]\n`
+  return `[HUD-контекст | ${when}${wx} | Язык ответа: ${lang} | Голос: ${tts.findVoice(voiceId()).label}${voices} | Проекты: ${list}${sandboxLine}${macroLine}${errors}]\n`
     + (fromVoice ? 'Голосовая команда (распознана автоматически, возможны ошибки): ' : 'Текстовая команда: ');
 }
 
@@ -373,6 +404,8 @@ function registerIpc() {
     const clean = Object.fromEntries(Object.entries(patch || {}).filter(([k]) => allowed.includes(k)));
     settings.set(clean);
     if (clean.voice) tts.prepare(clean.voice, packs).catch((e) => log('voice prepare failed', e.message));
+    if (settings.data.warmCore === false) brain.killWarm();
+    else setTimeout(() => brain.prewarm(brainSettings()), 300); // restarts the warm core if its flags changed
     return publicSettings();
   });
   ipcMain.handle('dialog:pickDir', async () => {
@@ -400,19 +433,40 @@ function registerIpc() {
     return brain.ask(prompt, brainSettings());
   });
   ipcMain.handle('brain:stop', () => brain.stop());
-  ipcMain.handle('brain:reset', () => { brain.reset(); settings.set({ sessionId: null }); });
+  ipcMain.handle('brain:reset', () => {
+    brain.reset();
+    settings.set({ sessionId: null });
+    setTimeout(() => brain.prewarm(brainSettings()), 300);
+  });
   ipcMain.handle('brain:status', async () => ({ ...(await brain.status(brainSettings())), sessionId: brain.sessionId, busy: brain.busy }));
   ipcMain.handle('brain:login', () => brain.login(brainSettings()));
 
   ipcMain.handle('tts:synth', async (_e, text) => {
     const s = settings.data;
-    const buf = await tts.synthesize(text, { voice: voiceId(), pitch: s.pitch, rate: s.rate }, packs);
+    const buf = await tts.synthesize(text, {
+      voice: voiceId(),
+      pitch: s.pitch,
+      rate: s.rate,
+      xtts: { url: s.xttsUrl, speaker: () => s.xttsSpeaker || phrases.reference() },
+      onFallback: (e) => { log('xtts fallback', e.message); send('tts:status', { state: 'fallback', message: e.message }); },
+    }, packs);
     return buf ? new Uint8Array(buf) : null;
   });
   ipcMain.handle('tts:prepare', async (_e, id) => {
     await tts.prepare(id || voiceId(), packs);
     return tts.catalog(packs);
   });
+
+  // pre-recorded JARVIS phrases: downloaded on first use, then read clip by clip by the renderer
+  ipcMain.handle('phrases:load', async (_e, pack) => {
+    await phrases.ensure(String(pack));
+    return phrases.manifest(String(pack));
+  });
+  ipcMain.handle('phrases:read', (_e, pack, file) => new Uint8Array(phrases.read(String(pack), String(file))));
+
+  // voice macros: matched and run here, the renderer only speaks the reply and does HUD actions
+  ipcMain.handle('macros:run', (_e, text) => (settings.data.macros === false ? null : macros.run(String(text || ''))));
+  ipcMain.handle('macros:list', () => macros.summary());
 
   ipcMain.handle('stt:load', (_e, size) => stt.load(size || settings.data.sttModel));
   ipcMain.handle('stt:transcribe', (_e, audio, size) => {
@@ -487,6 +541,8 @@ if (!primaryInstance) {
 } else {
   app.on('second-instance', () => {
     if (!win) return;
+    // JARVIS.exe and JARVIS-sandbox.cmd share one instance: a second launch only raises this window
+    send('app:notice', { text: 'JARVIS уже запущен — повторный запуск просто поднимает это окно', kind: '' });
     if (win.isMinimized()) win.restore();
     win.show();
     win.focus();
@@ -510,12 +566,20 @@ if (!primaryInstance) {
     });
     hot.start();
     sandbox.start();
+    macros.picturesDir = app.getPath('pictures');
+    macros.load();
     win.webContents.once('did-finish-load', () => {
       sandbox.restore();
+      // after the boot animation: the first command then finds Claude Code and the macro host already running
+      setTimeout(() => {
+        if (flag('selftest-sandbox')) return;
+        brain.prewarm(brainSettings());
+        if (winhost.supported && settings.data.macros !== false) winhost.start().catch((e) => log('winhost', e.message));
+      }, 3500);
       if (flag('selftest-sandbox')) {
         setTimeout(async () => {
           const { run } = require('./src/selftest-sandbox');
-          await run({ sandbox, win, root: SANDBOX_DIR, log, capture: flag('capture-dir') ? String(flag('capture-dir')) : null });
+          await run({ sandbox, macros, win, root: SANDBOX_DIR, log, capture: flag('capture-dir') ? String(flag('capture-dir')) : null });
           if (flag('quit-after-capture')) app.quit();
         }, Number(flag('selftest-delay')) || 6000);
       }
@@ -539,7 +603,8 @@ if (!primaryInstance) {
   app.on('will-quit', () => {
     globalShortcut.unregisterAll();
     hot.stop();
-    brain.stop();
+    brain.dispose();
+    winhost.stop();
     stt.dispose();
   });
   app.on('window-all-closed', () => app.quit());

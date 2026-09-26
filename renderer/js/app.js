@@ -3,6 +3,7 @@ import { Microphone, Vad, VoiceOut } from './audio.js';
 import { ReplyProcessor, stripTags } from './reply.js';
 import { isNoise, wakeCommand, localIntent } from './intents.js';
 import { createMockApi } from './mock.js';
+import { ClipBank } from './phrases.js';
 
 const api = window.jarvis || createMockApi();
 window.__errors = [];
@@ -48,12 +49,15 @@ const app = {
   ttsOk: null,
   cpuHistory: [],
   micCloseTimer: 0,
+  macroTurn: 0,
 };
 
 // ---------------------------------------------------------------- audio & core
 const reactor = new Reactor($('#reactor'));
 const voice = new VoiceOut();
 const mic = new Microphone();
+// pre-recorded JARVIS phrases (src/phrases.js), decoded once and played without any synthesis delay
+const clips = new ClipBank(api, (bytes) => voice.decode(bytes));
 const vad = new Vad({
   onStart: () => { if (app.state === 'listening') $('#state-text').textContent = 'Слушаю, сэр… говорите'; },
   onEnd: (audio, info) => handleUtterance(audio, info),
@@ -103,6 +107,12 @@ class Speaker {
     if (!this.playing) this.pump();
   }
 
+  /** A recorded phrase: already decoded, plays the moment its turn comes. */
+  clip(c) {
+    this.queue.push({ text: c.text, audio: Promise.resolve(c.buffer), raw: true });
+    if (!this.playing) this.pump();
+  }
+
   async synth(text) {
     try {
       const bytes = await api.tts.synth(text);
@@ -128,7 +138,7 @@ class Speaker {
       if (gen !== this.gen) return;
       if (app.state !== 'speaking') setState('speaking');
       $('#sub-jarvis').textContent = item.text;
-      if (buf) await voice.play(buf); else await fallbackSpeak(item.text);
+      if (buf) await voice.play(buf, item.raw); else await fallbackSpeak(item.text);
       if (gen !== this.gen) return;
       this.queue.shift();
     }
@@ -154,6 +164,23 @@ function say(text) {
 function voiceLang() {
   const v = app.settings?.voices?.find((x) => x.id === app.settings.voice);
   return v?.lang || 'ru';
+}
+
+/** A recorded phrase for the reaction, if one is loaded and the voice speaks Russian (the phrases do). */
+function pickClip(reaction) {
+  return voiceLang() === 'ru' ? clips.pick(reaction) : null;
+}
+
+/**
+ * Speaks a reaction ('reply', 'ack', 'ok', 'thanks', 'joke', …): the recorded JARVIS phrase when there is one,
+ * otherwise `fallback` (or a stock line) through the neural voice. Returns the text that was spoken.
+ */
+function react(reaction, fallback) {
+  const c = pickClip(reaction);
+  if (c) { speaker.clip(c); return c.text; }
+  const text = fallback ?? ClipBank.fallback(reaction);
+  if (text) say(text);
+  return text;
 }
 
 // ---------------------------------------------------------------- state
@@ -268,6 +295,8 @@ function handleTranscript(text) {
   if (isNoise(text)) {
     setState(idleState());
     toast('Не расслышал, повторите, пожалуйста', 'warn', 2500);
+    const c = pickClip('not_found');
+    if (c) speaker.clip(c);
     return;
   }
   const cmd = wakeCommand(text);
@@ -283,7 +312,7 @@ async function handleWakeSegment(audio) {
     if (cmd === null) return;
     if (!cmd) {
       speaker.clear();
-      say(voiceLang() === 'en' ? 'Yes, sir?' : 'Слушаю, сэр.');
+      react('reply', tr('Слушаю, сэр.', 'Yes, sir?'));
       await waitSpeech();
       startListening();
       return;
@@ -319,7 +348,53 @@ function handleCommand(text, source) {
   addLog('user', text);
   const intent = localIntent(text, app.projects);
   if (intent) return runIntent(intent);
+  runMacroOrAsk(text, source);
+}
+
+/** Voice macros (sandbox\macros) answer instantly; everything they do not know goes to Claude. */
+async function runMacroOrAsk(text, source) {
+  if (app.settings?.macros !== false && api.macros) {
+    const turn = ++app.macroTurn;
+    setState('thinking');
+    let r = null;
+    try {
+      r = await api.macros.run(text);
+    } catch (e) {
+      console.warn('macro', e.message);
+    }
+    if (turn !== app.macroTurn) return; // a newer command came in meanwhile
+    if (r) return macroDone(r);
+  }
   askBrain(text, source === 'voice');
+}
+
+function macroDone(r) {
+  speaker.clear();
+  if (r.error) {
+    addActivity('MACRO', `${r.id}: ${r.error}`, 'err');
+    addLog('system', `Макрос ${r.id}: ${r.error}`);
+    toast(`Макрос не сработал: ${r.error}`, 'bad', 7000);
+    sfx('error');
+    say(tr('Не получилось, сэр. Подробности на экране.', 'That did not work, sir. Details are on screen.'));
+    return;
+  }
+  addActivity('MACRO', `${r.id} · ${r.score}%`, 'info');
+  const spoken = [];
+  if (r.reply.sound) spoken.push(react(r.reply.sound));
+  if (r.reply.say) { say(r.reply.say); spoken.push(r.reply.say); }
+  if (r.reply.notify) toast(r.reply.notify, '', 5000);
+  addLog('jarvis', spoken.filter(Boolean).join(' ') || tr('Готово.', 'Done.'));
+  for (const a of r.hud || []) macroHud(a);
+  if (!speaker.busy) settle();
+}
+
+/** Macro actions that belong to the HUD rather than to Windows. */
+function macroHud(a) {
+  if (a.type === 'say') say(String(a.text || ''));
+  else if (a.type === 'notify') toast(String(a.text || ''), a.kind || '', 5000);
+  else if (a.type === 'ask') askBrain(String(a.text || ''), false);
+  else if (a.type === 'hud') hudCommand(String(a.command || ''), String(a.arg ?? ''));
+  else if (a.type === 'quit') waitSpeech().then(() => api.win.close());
 }
 
 function plural(n, one, few, many) {
@@ -341,7 +416,7 @@ function runIntent(intent) {
   switch (intent.action) {
     case 'stop':
       stopAll(false);
-      reply(tr('Как скажете, сэр.', 'As you wish, sir.'));
+      addLog('jarvis', react('ack', tr('Как скажете, сэр.', 'As you wish, sir.')));
       break;
     case 'reset':
       api.brain.reset();
@@ -400,6 +475,10 @@ function askBrain(text, fromVoice) {
   app.logText = '';
   app.brainBusy = true;
   app.brainTurn += 1; // the main process numbers turns sequentially; ignore the previous turn's "stopped"
+  if (fromVoice && app.settings?.phraseAck !== false) {
+    const c = pickClip('ack');
+    if (c) speaker.clip(c);
+  }
   setState('thinking');
   chip('#chip-core', 'busy');
   api.brain.ask(text, { voice: fromVoice }).then((turn) => {
@@ -885,6 +964,8 @@ function fillSettings() {
   $('#set-voice').innerHTML = groups.map((g) => `<optgroup label="${esc(g.label)}">${g.voices
     .map((v) => `<option value="${esc(v.id)}">${esc(v.label)}${v.offline && !v.ready ? ` · скачается ${v.mb} МБ` : ''}</option>`).join('')}</optgroup>`).join('');
   $('#set-city').innerHTML = CITIES.map((c, i) => `<option value="${i}">${esc(c.name)}</option>`).join('');
+  $('#set-phrases').innerHTML = '<option value="">Выключены — всё говорит нейроголос</option>' + (s.phrasePacks || [])
+    .map((p) => `<option value="${esc(p.id)}">${esc(p.title)} — ${esc(p.note)}${p.ready ? '' : ` · скачается ${(p.kb / 1024).toFixed(1)} МБ`}</option>`).join('');
   for (const el of f.elements) {
     if (!el.name || !(el.name in s)) continue;
     if (el.name === 'city') el.value = String(Math.max(0, CITIES.findIndex((c) => c.name === s.city?.name)));
@@ -908,8 +989,13 @@ function updateOutputs() {
   if (v.lang === 'en') parts.push('Отвечает по-английски; русские фразы озвучит запасной голос Дмитрий.');
   if (v.license) parts.push(`Лицензия: ${v.license}.`);
   if (v.offline) parts.push('Тон для офлайн-голосов не меняется — только скорость.');
+  if (v.engine === 'xtts') {
+    parts.length = 0;
+    parts.push('Клон голоса Джарвиса из фильма: нужен запущенный xtts-api-server (Python, лучше с видеокартой NVIDIA), адрес ниже.',
+      'Образец голоса JARVIS склеит сам из фраз «Оригинал из фильма». Если сервер не отвечает, говорит Дмитрий «Джарвис».');
+  }
   $('#voice-hint').textContent = parts.join(' ');
-  f.pitch.disabled = !!v.offline;
+  f.pitch.disabled = !!v.offline || v.engine === 'xtts';
 }
 
 function readSettings() {
@@ -953,6 +1039,7 @@ async function prepareVoice() {
 async function applySettings(prev) {
   const s = app.settings;
   if (prev && prev.voice !== s.voice) prepareVoice();
+  if (prev && prev.phrasePack !== s.phrasePack) app.clipsLoading = loadClips();
   voice.setFx(!!s.voiceFx);
   voice.setVolume(Number(s.volume));
   if (prev && (prev.sttModel !== s.sttModel || prev.sttGroqKey !== s.sttGroqKey || prev.sttOpenaiKey !== s.sttOpenaiKey)) api.stt.load(s.sttModel);
@@ -1084,6 +1171,27 @@ api.tts.onStatus?.((s) => {
   }
 });
 
+api.phrases?.onStatus((s) => {
+  const el = $('#status-voice');
+  if (s.state === 'downloading') el.textContent = `PHRASES · загрузка ${s.title} ${Math.round((s.progress || 0) * 100)}%`;
+  else if (s.state === 'ready') { el.textContent = ''; addActivity('VOICE', `фразы Джарвиса загружены: ${s.title}`, 'info'); }
+  else if (s.state === 'error') { el.textContent = 'PHRASES · ошибка загрузки'; toast(`Не удалось скачать фразы «${s.title}»: ${s.message}`, 'bad', 7000); }
+});
+
+let lastFallbackToast = 0;
+api.tts.onStatus?.((s) => {
+  if (s.state !== 'fallback' || Date.now() - lastFallbackToast < 60000) return;
+  lastFallbackToast = Date.now();
+  toast('XTTS-сервер не отвечает — говорю голосом Дмитрий «Джарвис»', 'warn', 6000);
+  addActivity('VOICE', `клон голоса недоступен: ${s.message}`, 'err');
+});
+
+api.macros?.onLoaded((m) => {
+  addActivity('MACRO', `макросы загружены: ${m.count}${m.errors.length ? `, ошибок ${m.errors.length}` : ''}`, m.errors.length ? 'err' : 'info');
+});
+
+api.onNotice?.((n) => toast(n.text, n.kind || '', 5000));
+
 api.stt.onStatus((s) => {
   const cloudSel = ['groq', 'openai'].includes(app.settings?.sttModel);
   if (s.state === 'fallback') {
@@ -1114,25 +1222,58 @@ api.stt.onStatus((s) => {
 });
 
 // ---------------------------------------------------------------- boot
+/** { hello, rest }: the greeting proper and what follows it (weather, warnings). */
 function greeting() {
   const h = new Date().getHours();
   const en = voiceLang() === 'en';
   if (en) {
     const part = h < 5 ? 'Good evening' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
-    let s = `${part}, sir. JARVIS online, all systems nominal.`;
-    if (app.loggedIn === false) s += ' The Claude core is not authorised yet — press Authorise on the core panel.';
-    return s;
+    const rest = app.loggedIn === false ? 'The Claude core is not authorised yet — press Authorise on the core panel.' : '';
+    return { hello: `${part}, sir. JARVIS online, all systems nominal.`, rest };
   }
   const part = h < 5 ? 'Доброй ночи' : h < 12 ? 'Доброе утро' : h < 18 ? 'Добрый день' : 'Добрый вечер';
-  let s = `${part}, сэр. Джарвис на связи, все системы в норме.`;
+  const rest = [];
   const w = app.weather;
   if (w && Number.isFinite(w.temp)) {
     const t = Math.round(w.temp);
     const city = CITIES.find((c) => c.name === w.city);
-    s += ` В ${city ? city.in : w.city} сейчас ${t < 0 ? 'минус ' + -t : t} ${plural(t, 'градус', 'градуса', 'градусов')}, ${w.text}.`;
+    rest.push(`В ${city ? city.in : w.city} сейчас ${t < 0 ? 'минус ' + -t : t} ${plural(t, 'градус', 'градуса', 'градусов')}, ${w.text}.`);
   }
-  if (app.loggedIn === false) s += ' Однако ядро Claude пока не авторизовано — нажмите «Авторизовать» на панели ядра.';
-  return s;
+  if (app.loggedIn === false) rest.push('Однако ядро Claude пока не авторизовано — нажмите «Авторизовать» на панели ядра.');
+  return { hello: `${part}, сэр. Джарвис на связи, все системы в норме.`, rest: rest.join(' ') };
+}
+
+function speakGreeting() {
+  const { hello, rest } = greeting();
+  const c = voiceLang() === 'ru' ? clips.greeting() : null;
+  $('#sub-jarvis').textContent = '';
+  if (c) {
+    speaker.clip(c);
+    if (rest) say(rest);
+    addLog('jarvis', [c.text, rest].filter(Boolean).join(' '));
+  } else {
+    const text = [hello, rest].filter(Boolean).join(' ');
+    say(text);
+    addLog('jarvis', text);
+  }
+}
+
+/** Loads the chosen phrase pack; the first time it is downloaded (a few MB). */
+function loadClips() {
+  const pack = app.settings?.phrasePack || '';
+  return clips.load(pack).then((n) => {
+    if (pack) $('#core-phrases').textContent = n ? `${phrasePackTitle(pack)} · ${n}` : 'нет';
+    else $('#core-phrases').textContent = 'выкл.';
+    return n;
+  }).catch((e) => {
+    $('#core-phrases').textContent = 'ошибка';
+    toast('Фразы Джарвиса не загрузились: ' + e.message, 'warn', 6000);
+    return 0;
+  });
+}
+
+function phrasePackTitle(id) {
+  return app.settings?.phrasePacks?.find((p) => p.id === id)?.title || id;
 }
 
 async function boot() {
@@ -1171,6 +1312,12 @@ async function boot() {
   api.stt.load(app.settings.sttModel);
   print(dots(`Слух: ${['groq', 'openai'].includes(app.settings.sttModel) ? 'облако ' + app.settings.sttModel : 'Whisper ' + app.settings.sttModel}`, 'ЗАГРУЗКА'));
   progress(0.5);
+  if (app.settings.phrasePack) {
+    const n = await Promise.race([app.clipsLoading, sleep(2500).then(() => null)]);
+    print(dots(`Фразы Джарвиса: ${phrasePackTitle(app.settings.phrasePack)}`, n ? `${n} ЗАПИСЕЙ` : n === 0 ? 'НЕТ' : 'ЗАГРУЗКА'));
+  }
+  const mc = await api.macros?.list().catch(() => null);
+  if (mc) print(dots(`Макросы: ${mc.count}`, mc.errors.length ? `ОШИБОК ${mc.errors.length}` : 'OK'));
   const logged = await Promise.race([brainCheck, sleep(6000).then(() => null)]);
   print(dots('Ядро Claude Code', logged ? 'ONLINE' : logged === false ? 'НЕ АВТОРИЗОВАНО' : 'ПРОВЕРКА'));
   progress(0.7);
@@ -1186,12 +1333,7 @@ async function boot() {
   $('#boot').classList.add('done');
   setState(idleState());
   $('#state-text').textContent = STATE_TEXT[idleState()][1];
-  if (app.settings.greeting) {
-    const text = greeting();
-    $('#sub-jarvis').textContent = '';
-    addLog('jarvis', text);
-    say(text);
-  }
+  if (app.settings.greeting) speakGreeting();
 }
 
 async function init() {
@@ -1200,6 +1342,7 @@ async function init() {
   $('#status-version').textContent = 'v' + (app.settings.version || '1.0');
   voice.setFx(!!app.settings.voiceFx);
   voice.setVolume(Number(app.settings.volume ?? 0.9));
+  app.clipsLoading = loadClips();
   $('#log').innerHTML = '<div class="log-empty">Журнал связи пуст. Скажите что-нибудь, сэр.</div>';
   tickClock();
   setInterval(tickClock, 1000);

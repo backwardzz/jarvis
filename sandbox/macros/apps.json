@@ -1,0 +1,81 @@
+{
+  "title": "Программы и сайты",
+  "macros": [
+    {
+      "id": "calculator",
+      "phrases": ["открой калькулятор", "запусти калькулятор", "включи калькулятор", "калькулятор"],
+      "do": { "type": "open", "target": "calc" }
+    },
+    {
+      "id": "calculator-close",
+      "phrases": ["закрой калькулятор", "выключи калькулятор", "убери калькулятор"],
+      "do": { "type": "close", "process": "CalculatorApp.exe", "force": true }
+    },
+    {
+      "id": "notepad",
+      "phrases": ["открой блокнот", "запусти блокнот"],
+      "do": { "type": "open", "target": "notepad" }
+    },
+    {
+      "id": "explorer",
+      "phrases": ["открой проводник", "запусти проводник", "открой мой компьютер"],
+      "do": { "type": "open", "target": "explorer" }
+    },
+    {
+      "id": "windows-settings",
+      "phrases": ["открой параметры windows", "параметры windows", "открой параметры компьютера"],
+      "do": { "type": "open", "target": "ms-settings:" }
+    },
+    {
+      "id": "terminal",
+      "phrases": ["открой командную строку", "открой консоль", "открой терминал"],
+      "do": { "type": "open", "target": "cmd" }
+    },
+    {
+      "id": "browser",
+      "phrases": ["открой браузер", "запусти браузер", "открой хром", "запусти хром", "нужен браузер"],
+      "do": { "type": "open", "target": "https://www.google.com" }
+    },
+    {
+      "id": "browser-close",
+      "phrases": ["закрой браузер", "закрой все браузеры", "выключи браузер"],
+      "do": { "type": "close", "process": ["chrome.exe", "msedge.exe", "firefox.exe", "opera.exe", "browser.exe"] }
+    },
+    {
+      "id": "google",
+      "phrases": ["открой гугл", "зайди в гугл", "гугл"],
+      "do": { "type": "open", "target": "https://www.google.com" }
+    },
+    {
+      "id": "youtube",
+      "phrases": ["открой ютуб", "зайди на ютуб", "включи ютуб", "ютуб"],
+      "do": { "type": "open", "target": "https://www.youtube.com" }
+    },
+    {
+      "id": "google-search",
+      "phrases": ["найди в гугле {text}", "загугли {text}", "погугли {text}", "поищи в интернете {text}", "найди в интернете {text}"],
+      "do": { "type": "open", "target": "https://www.google.com/search?q=${text.url}" }
+    },
+    {
+      "id": "youtube-search",
+      "phrases": ["найди на ютубе {text}", "найди в ютубе {text}", "включи на ютубе {text}", "поищи на ютубе {text}"],
+      "do": { "type": "open", "target": "https://www.youtube.com/results?search_query=${text.url}" }
+    },
+    {
+      "id": "steam",
+      "phrases": ["открой стим", "запусти стим", "включи стим"],
+      "do": { "type": "open", "target": "steam://open/main" }
+    },
+    {
+      "id": "game-mode",
+      "phrases": ["игровой режим", "включи игровой режим", "перейди в игровой режим", "я хочу поиграть"],
+      "do": { "type": "open", "target": "steam://open/bigpicture" },
+      "sound": "game_mode"
+    },
+    {
+      "id": "work-mode",
+      "phrases": ["рабочий режим", "выключи игровой режим", "выйди из игрового режима", "закрой стим", "выключи стим"],
+      "do": { "type": "close", "process": "steam.exe", "force": true }
+    }
+  ]
+}

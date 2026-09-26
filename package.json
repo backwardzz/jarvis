@@ -9,6 +9,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
+    "test": "node --test \"test/*.test.js\"",
     "dist": "electron-builder --win --dir"
   },
   "dependencies": {

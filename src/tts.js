@@ -1,8 +1,10 @@
 'use strict';
 /**
- * Speech synthesis. Two kinds of engines:
+ * Speech synthesis. Three kinds of engines:
  *  - edge:   Microsoft Edge read-aloud neural voices (online, free);
- *  - kokoro / piper: open offline models run locally through sherpa-onnx.
+ *  - kokoro / piper: open offline models run locally through sherpa-onnx;
+ *  - xtts:   a voice clone — a local XTTS-v2 server (github.com/daswer123/xtts-api-server) speaks with the timbre
+ *            of a short sample; by default the sample is stitched from the film JARVIS phrases (src/phrases.js).
  */
 const { MsEdgeTTS } = require('msedge-tts');
 const path = require('path');
@@ -26,12 +28,15 @@ const VOICES = [
 
   { id: 'piper:ru_RU-ruslan', engine: 'piper', pack: 'vits-piper-ru_RU-ruslan-medium', model: 'ru_RU-ruslan-medium.onnx', label: 'Руслан — русский, низкий', lang: 'ru', group: 'piper', license: 'CC BY-NC-SA 4.0 (некоммерческое)' },
   { id: 'piper:ru_RU-dmitri', engine: 'piper', pack: 'vits-piper-ru_RU-dmitri-medium', model: 'ru_RU-dmitri-medium.onnx', label: 'Дмитрий (Piper) — русский, чёткий', lang: 'ru', group: 'piper', license: 'CC0' },
+
+  { id: 'xtts:jarvis', engine: 'xtts', label: 'Джарвис из фильма — клон голоса (свой XTTS-сервер)', lang: 'ru', group: 'clone' },
 ];
 
 const GROUPS = {
   online: 'Онлайн · Microsoft Neural (нужен интернет)',
   kokoro: 'Офлайн · Kokoro — британские, отвечают по-английски',
   piper: 'Офлайн · Piper — русские',
+  clone: 'Клон голоса · XTTS-v2 на вашей видеокарте',
 };
 
 // Used when the chosen voice cannot speak the text (Russian text for an English voice) or its pack is still downloading.
@@ -187,23 +192,77 @@ function wav(samples, rate) {
   return buf;
 }
 
+// ---------------------------------------------------------------- xtts (voice clone on a local server)
+let xttsDownUntil = 0; // a server that is not running is not asked again for a while
+
+async function xttsSynth(text, { url, speaker } = {}) {
+  if (Date.now() < xttsDownUntil) throw new Error('XTTS-сервер недоступен');
+  const base = String(url || 'http://127.0.0.1:8020').replace(/\/+$/, '');
+  try {
+    const speakerWav = typeof speaker === 'function' ? await speaker() : speaker;
+    const res = await fetch(`${base}/tts_to_audio/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, speaker_wav: speakerWav, language: isMostlyCyrillic(text) ? 'ru' : 'en' }),
+      signal: AbortSignal.timeout(45000),
+    });
+    if (!res.ok) throw new Error(`XTTS ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length < 400) throw new Error('XTTS вернул пустой звук');
+    return buf;
+  } catch (e) {
+    xttsDownUntil = Date.now() + 30000;
+    throw e;
+  }
+}
+
 // ---------------------------------------------------------------- public
+// Short phrases repeat a lot ("Как скажете, сэр."): keep their audio instead of synthesising them again.
+const cache = new Map();
+const CACHE_MAX = 80;
+const CACHE_TEXT = 200;
+
 /**
+ * @param {object} [o]
+ * @param {{url: string, speaker: string|(() => Promise<string>)}} [o.xtts] XTTS server and speaker sample
+ * @param {(e: Error) => void} [o.onFallback] the chosen voice failed and a stand-in spoke instead
  * @returns {Promise<Buffer|null>} mp3 or wav bytes
  */
-async function synthesize(text, { voice: id, pitch = 0, rate = 0 } = {}, packs) {
+async function synthesize(text, { voice: id, pitch = 0, rate = 0, xtts, onFallback } = {}, packs) {
   const clean = String(text || '').trim();
   if (!clean) return null;
+  const key = `${id}|${pitch}|${rate}|${clean}`;
+  const hit = cache.get(key);
+  if (hit) {
+    cache.delete(key); // most recently used goes last
+    cache.set(key, hit);
+    return hit;
+  }
+  let cacheable = clean.length <= CACHE_TEXT;
   let v = findVoice(id);
   if (v.lang === 'en' && isMostlyCyrillic(clean)) v = findVoice(FALLBACK.ru);
   if (v.pack && !packs.ready(v.pack)) {
     packs.ensure(v.pack).catch(() => {}); // download in the background, speak with an online voice meanwhile
     v = findVoice(FALLBACK[v.lang] || FALLBACK.ru);
+    cacheable = false;
   }
-  if (v.engine === 'edge') {
-    return edgeSynth(clean, v.edgeVoice || v.id, pitch + (v.pitchShift || 0), rate + (v.rateShift || 0));
+  let buf;
+  if (v.engine === 'xtts') {
+    try {
+      buf = await xttsSynth(clean, xtts);
+    } catch (e) {
+      onFallback?.(e);
+      v = findVoice('edge:dmitry-jarvis');
+      cacheable = false;
+    }
   }
-  return offlineSynth(v, clean, rate, packs);
+  if (!buf && v.engine === 'edge') buf = await edgeSynth(clean, v.edgeVoice || v.id, pitch + (v.pitchShift || 0), rate + (v.rateShift || 0));
+  else if (!buf) buf = await offlineSynth(v, clean, rate, packs);
+  if (cacheable && buf) {
+    cache.set(key, buf);
+    if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
+  }
+  return buf;
 }
 
 /** Loads the offline model ahead of the first phrase (download included). */

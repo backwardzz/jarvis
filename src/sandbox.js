@@ -5,9 +5,10 @@
  *   widgets/<id>/index.html (+ widget.json) -> a frameless HUD window, reloaded on every edit
  *   plugins/<id>.js                          -> Node logic in a utility process, hot-swapped on every edit
  *   hud/hud.css, hud/hud.js                  -> live additions to the main HUD (applied by the renderer)
+ *   macros/<name>.json                       -> voice macros, reloaded on every edit (src/macros.js)
  * Status and recent errors are mirrored to <root>/.status.json so Claude can check its own work.
  */
-const { BrowserWindow, utilityProcess, shell } = require('electron');
+const { BrowserWindow, utilityProcess, shell, screen } = require('electron');
 const { EventEmitter } = require('events');
 const fs = require('fs');
 const path = require('path');
@@ -18,6 +19,16 @@ const ID = /^[a-z0-9][a-z0-9_-]{0,47}$/i;
 const BAR = 32; // height of the widget title strip, see widget-preload.js
 
 const clamp = (v, lo, hi, dflt) => (Number.isFinite(Number(v)) ? Math.max(lo, Math.min(hi, Math.round(Number(v)))) : dflt);
+
+/** True if a saved window rectangle still shows enough of itself on one of the current displays. */
+function onScreen(b) {
+  if (!Number.isFinite(b?.x) || !Number.isFinite(b?.y)) return false;
+  return screen.getAllDisplays().some(({ workArea: a }) => {
+    const w = Math.min(b.x + (b.width || 300), a.x + a.width) - Math.max(b.x, a.x);
+    const h = Math.min(b.y + (b.height || 200), a.y + a.height) - Math.max(b.y, a.y);
+    return w >= 120 && h >= 60;
+  });
+}
 
 /** Parses a CommonJS file without running it; returns an error message or null. */
 function syntaxError(file) {
@@ -51,7 +62,7 @@ class Sandbox extends EventEmitter {
 
   // ------------------------------------------------------------ lifecycle
   start() {
-    for (const d of ['widgets', 'plugins', 'hud']) fs.mkdirSync(path.join(this.root, d), { recursive: true });
+    for (const d of ['widgets', 'plugins', 'hud', 'macros']) fs.mkdirSync(path.join(this.root, d), { recursive: true });
     fs.mkdirSync(path.join(this.dataDir, 'widgets'), { recursive: true });
     fs.mkdirSync(path.join(this.dataDir, 'plugins'), { recursive: true });
     for (const w of this.list()) this.known.add(w.id);
@@ -125,11 +136,12 @@ class Sandbox extends EventEmitter {
       return true;
     }
     const b = this.state.bounds[id] || {};
+    // a window last seen on a monitor that is gone would open where nobody can see it
+    const place = onScreen(b) ? { x: b.x, y: b.y } : {};
     const w = new BrowserWindow({
       width: b.width || m.width,
       height: b.height || m.height,
-      x: b.x,
-      y: b.y,
+      ...place,
       minWidth: 220,
       minHeight: 140,
       frame: false,
@@ -286,6 +298,8 @@ class Sandbox extends EventEmitter {
       this.emit('hud', { css: files.some((f) => f.endsWith('.css')), js: files.some((f) => f.endsWith('.js')), v: Date.now() });
     } else if (area === 'kit') {
       this.broadcast('widget:css');
+    } else if (area === 'macros') {
+      this.emit('macros');
     }
     this.writeStatus();
   }
@@ -429,6 +443,7 @@ class Sandbox extends EventEmitter {
         note: 'Состояние песочницы JARVIS (обновляется автоматически, не редактируйте).',
         widgets: this.list(),
         plugins: Object.fromEntries(this.plugins),
+        ...(this.statusExtra ? this.statusExtra() : {}),
         errors: this.errors,
       };
       try { fs.writeFileSync(path.join(this.root, '.status.json'), JSON.stringify(status, null, 2), 'utf8'); } catch { /* read-only */ }

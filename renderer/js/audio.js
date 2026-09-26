@@ -282,11 +282,12 @@ export class VoiceOut {
     return this.ctx.decodeAudioData(ab);
   }
 
-  play(buffer) {
+  /** raw: skip the EQ and "AI" effects — for recorded phrases that already carry their own sound. */
+  play(buffer, raw = false) {
     this.stop();
     return new Promise((resolve) => {
       const src = new AudioBufferSourceNode(this.ctx, { buffer });
-      src.connect(this.input);
+      src.connect(raw ? this.comp : this.input);
       src.onended = () => {
         if (this.current === src) this.current = null;
         resolve();
